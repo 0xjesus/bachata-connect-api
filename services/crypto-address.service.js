@@ -32,6 +32,7 @@ class CryptoAddressService {
             });
 
             if (existingAddress) {
+				// eliminala
                 throw new Error('This address is already registered for your account');
             }
 
@@ -75,105 +76,104 @@ class CryptoAddressService {
             throw new Error('Address not found or does not belong to user');
         }
 
-        return primate.prisma.cryptoAddress.update({
-            where: { id: addressId },
-            data: { status: 'DELETED', isDefault: false }
+        return primate.prisma.cryptoAddress.delete({
+	        			where: { id: addressId }
         });
     }
 
-    static async withdrawMXNBToAddress(userId, withdrawalData) {
-        return primate.prisma.$transaction(async (tx) => {
-            const { addressId, amount, blockchain = 'ARBITRUM' } = withdrawalData;
+  static async withdrawMXNBToAddress(userId, withdrawalData) {
+    return primate.prisma.$transaction(async (tx) => {
+      const { addressId, amount, blockchain = 'ARBITRUM' } = withdrawalData;
 
-            if (!addressId || !amount) {
-                throw new Error('Address ID and amount are required');
-            }
-            const amountDecimal = new Prisma.Decimal(amount);
-            if (amountDecimal.lte(0)) {
-                throw new Error('Invalid amount');
-            }
+      if (!addressId || !amount) {
+        throw new Error('Address ID and amount are required');
+      }
+      const amountDecimal = new Prisma.Decimal(amount);
+      if (amountDecimal.lte(0)) {
+        throw new Error('Invalid amount');
+      }
 
-            const user = await tx.user.findUnique({ where: { id: userId } });
-            if (!user) throw new Error('User not found');
+      const user = await tx.user.findUnique({ where: { id: userId } });
+      if (!user) throw new Error('User not found');
 
-            const internalBalance = await TransactionService.getUserBalance(userId, tx);
-            if (internalBalance.lessThan(amountDecimal)) {
-                throw new Error(`Insufficient internal balance. Available: ${internalBalance.toFixed(2)} MXNB, Required: ${amount} MXNB`);
-            }
+      const internalBalance = await TransactionService.getUserBalance(userId, tx);
+      if (internalBalance.lessThan(amountDecimal)) {
+        throw new Error(`Insufficient internal balance. Available: ${internalBalance.toFixed(2)} MXNB, Required: ${amount} MXNB`);
+      }
 
-            const cryptoAddress = await tx.cryptoAddress.findFirst({
-                where: { id: addressId, userId, status: 'ACTIVE' }
-            });
-            if (!cryptoAddress) throw new Error('Crypto address not found or inactive');
+      const cryptoAddress = await tx.cryptoAddress.findFirst({
+        where: { id: addressId, userId, status: 'ACTIVE' }
+      });
+      if (!cryptoAddress) throw new Error('Crypto address not found or inactive');
 
-            if (cryptoAddress.blockchain !== blockchain.toUpperCase()) {
-                throw new Error(`Address blockchain mismatch. Expected: ${blockchain}, Found: ${cryptoAddress.blockchain}`);
-            }
+      if (cryptoAddress.blockchain !== blockchain.toUpperCase()) {
+        throw new Error(`Address blockchain mismatch. Expected: ${blockchain}, Found: ${cryptoAddress.blockchain}`);
+      }
 
-            const junoWithdrawalData = {
-                address: cryptoAddress.address,
-                amount: amount.toString(),
-                asset: "MXNB",
-                blockchain: blockchain.toUpperCase(),
-                compliance: {}
-            };
+      const junoWithdrawalData = {
+        address: cryptoAddress.address,
+        amount: amount.toString(),
+        asset: "MXNB",
+        blockchain: blockchain.toUpperCase(),
+        compliance: {}
+      };
 
-            const withdrawalResult = await JunoBitsoService.createJunoWithdrawal(junoWithdrawalData);
-            if (!withdrawalResult.success) {
-                throw new Error(`Juno withdrawal failed: ${withdrawalResult.error?.message || 'Unknown error'}`);
-            }
+      const withdrawalResult = await JunoBitsoService.createJunoWithdrawal(junoWithdrawalData);
+      if (!withdrawalResult.success) {
+        throw new Error(`Juno withdrawal failed: ${withdrawalResult.error?.message || 'Unknown error'}`);
+      }
 
-            const withdrawalRecord = await tx.cryptoWithdrawal.create({
-                data: {
-                    userId,
-                    cryptoAddressId: addressId,
-                    amount: amountDecimal,
-                    asset: 'MXNB',
-                    blockchain: blockchain.toUpperCase(),
-                    status: 'PENDING',
-                    junoTransactionId: withdrawalResult.payload.id || withdrawalResult.payload.transaction_id,
-                    destinationAddress: cryptoAddress.address,
-                }
-            });
+      const withdrawalRecord = await tx.cryptoWithdrawal.create({
+        data: {
+          userId,
+          cryptoAddressId: addressId,
+          amount: amountDecimal,
+          asset: 'MXNB',
+          blockchain: blockchain.toUpperCase(),
+          status: 'PENDING',
+          junoTransactionId: withdrawalResult.payload.id || withdrawalResult.payload.transaction_id,
+          destinationAddress: cryptoAddress.address,
+        }
+      });
 
-            await tx.transaction.create({
-                data: {
-                    userId,
-                    type: 'WITHDRAWAL_CRYPTO',
-                    status: 'COMPLETED',
-                    amount: amountDecimal.negated(),
-                    description: `Retiro de ${amount} MXNB a ${cryptoAddress.label}`,
-                    metas: {
-                        withdrawalId: withdrawalRecord.id,
-                        junoResponse: withdrawalResult.payload
-                    }
-                }
-            });
+      await tx.transaction.create({
+        data: {
+          userId,
+          type: 'WITHDRAWAL_CRYPTO',
+          status: 'COMPLETED',
+          amount: amountDecimal.negated(),
+          description: `Retiro de ${amount} MXNB a ${cryptoAddress.label}`,
+          metas: {
+            withdrawalId: withdrawalRecord.id,
+            junoResponse: withdrawalResult.payload
+          }
+        }
+      });
 
-            return {
-                success: true,
-                withdrawal: withdrawalRecord,
-                message: `Successfully initiated withdrawal of ${amount} MXNB`
-            };
-        });
-    }
+      return {
+        success: true,
+        withdrawal: withdrawalRecord,
+        message: `Successfully initiated withdrawal of ${amount} MXNB`
+      };
+    });
+  }
 
-    static async getUserWithdrawals(userId, options = {}) {
-        const { limit = 25, offset = 0 } = options;
-        const withdrawals = await primate.prisma.cryptoWithdrawal.findMany({
-            where: { userId },
-            orderBy: { created: 'desc' },
-            take: parseInt(limit),
-            skip: parseInt(offset)
-        });
-        const total = await primate.prisma.cryptoWithdrawal.count({ where: { userId } });
+  static async getUserWithdrawals(userId, options = {}) {
+    const { limit = 25, offset = 0 } = options;
+    const withdrawals = await primate.prisma.cryptoWithdrawal.findMany({
+      where: { userId },
+      orderBy: { created: 'desc' },
+      take: parseInt(limit),
+      skip: parseInt(offset)
+    });
+    const total = await primate.prisma.cryptoWithdrawal.count({ where: { userId } });
 
-        return {
-            success: true,
-            data: withdrawals,
-            meta: { total, limit, offset, hasMore: (offset + limit) < total }
-        };
-    }
+    return {
+      success: true,
+      data: withdrawals,
+      meta: { total, limit, offset, hasMore: (offset + limit) < total }
+    };
+  }
 }
 
 export default CryptoAddressService;
