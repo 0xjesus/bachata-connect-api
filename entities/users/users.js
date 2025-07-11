@@ -38,6 +38,7 @@ router.get('/me/stats', auth, UserController.getStats);
 router.get('/me/activity', auth, UserController.getActivitySummary);
 router.post('/me/wallet', auth, UserController.generateUserWallet);
 router.get('/me/wallet/private-key', auth, UserController.getWalletPrivateKey);
+router.post('/me/fund', auth, UserController.fundMyAccount);
 
 Primate.setupRoute('user', router, {
     searchField: [ 'username' ],
