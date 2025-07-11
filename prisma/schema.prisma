@@ -1,0 +1,297 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String  @id @default(cuid())
+  email            String? @unique
+  username         String? @unique
+  password         String?
+  firstname        String?
+  lastname         String?
+  nicename         String?
+  status           String? @default("Active")
+  idWa             String? @unique @map("id_wa")
+  metas            Json?
+  fundingClabe     String? @unique @map("funding_clabe") @db.VarChar(18)
+  walletAddress    String? @unique @map("wallet_address")
+  walletPrivateKey String? @map("wallet_private_key") @db.Text
+
+  created  DateTime @default(now())
+  modified DateTime @default(now()) @updatedAt
+
+  // 👇 ESTA ES LA ÚNICA LÍNEA QUE DEBE EXISTIR PARA LA RELACIÓN CON EVENTOS
+  hostedEvents Event[] @relation("HostEvents")
+
+  participations   Participation[]
+  treasuryEvents   EventTreasurer[]
+  eventUpdates     EventUpdate[]
+  updateComments   UpdateComment[]
+  links            Link[]
+  attachments      Attachment[]
+  chats            Chat[]
+  messages         Message[]
+  threads          Thread[]
+  CryptoAddress    CryptoAddress[]
+  CryptoWithdrawal CryptoWithdrawal[]
+  Transaction      Transaction[]
+  // ⛔️ ELIMINA LAS LÍNEAS "Event Event[]" DE AQUÍ ⛔️
+  Event            Event[]
+
+  @@map("users")
+}
+
+model Attachment {
+  id    String @id @default(cuid())
+  metas Json?
+
+  idUser String @map("id_user")
+  user   User   @relation(fields: [idUser], references: [id])
+
+  created  DateTime @default(now())
+  modified DateTime @default(now()) @updatedAt
+
+  eventCover Event? @relation("EventCoverImage")
+
+  @@map("attachments")
+}
+
+model Link {
+  id     String  @id @default(cuid())
+  type   String?
+  token  String?
+  status String?
+
+  idUser String @map("id_user")
+  user   User   @relation(fields: [idUser], references: [id])
+
+  created  DateTime @default(now())
+  modified DateTime @default(now()) @updatedAt
+
+  @@map("links")
+}
+
+model Event {
+  id                String   @id @default(cuid())
+  publicSlug        String   @unique @map("public_slug")
+  title             String
+  description       Json?
+  eventDate         DateTime @map("event_date")
+  fundingDeadline   DateTime @map("funding_deadline")
+  status            String   @default("DRAFT") // Era EventStatus
+  targetAmount      Decimal  @map("target_amount") @db.Decimal(12, 2)
+  currentAmount     Decimal  @default(0) @map("current_amount") @db.Decimal(12, 2)
+  hostFeePercentage Decimal  @default(0) @map("host_fee_percentage") @db.Decimal(5, 2)
+
+  idCoverImage String?     @unique @map("id_cover_image")
+  coverImage   Attachment? @relation("EventCoverImage", fields: [idCoverImage], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  hostId String @map("host_id")
+  host   User   @relation("HostEvents", fields: [hostId], references: [id])
+
+  created  DateTime @default(now())
+  modified DateTime @default(now()) @updatedAt
+
+  updates      EventUpdate[]
+  participants Participation[]
+  treasurers   EventTreasurer[]
+  Transaction  Transaction[]
+  User         User?            @relation(fields: [userId], references: [id])
+  userId       String?
+
+  @@map("events")
+}
+
+model EventTreasurer {
+  userId  String @map("user_id")
+  eventId String @map("event_id")
+
+  user  User  @relation(fields: [userId], references: [id])
+  event Event @relation(fields: [eventId], references: [id])
+
+  created  DateTime @default(now())
+  modified DateTime @default(now()) @updatedAt
+
+  @@id([userId, eventId])
+  @@map("event_treasurers")
+}
+
+model Participation {
+  id     String  @id @default(cuid())
+  amount Decimal @db.Decimal(12, 2)
+
+  userId  String @map("user_id")
+  user    User   @relation(fields: [userId], references: [id])
+  eventId String @map("event_id")
+  event   Event  @relation(fields: [eventId], references: [id])
+
+  created  DateTime @default(now())
+  modified DateTime @default(now()) @updatedAt
+
+  @@unique([userId, eventId])
+  @@map("participations")
+}
+
+model Chat {
+  id       String  @id @default(cuid())
+  entity   String?
+  idEntity String? @map("id_entity")
+
+  idUser String @map("id_user")
+  user   User   @relation(fields: [idUser], references: [id])
+
+  created  DateTime @default(now())
+  modified DateTime @default(now()) @updatedAt
+
+  threads Thread[]
+
+  @@map("chats")
+}
+
+model Thread {
+  id String @id @default(cuid())
+
+  idChat String @map("id_chat")
+  chat   Chat   @relation(fields: [idChat], references: [id])
+  idUser String @map("id_user")
+  user   User   @relation(fields: [idUser], references: [id])
+
+  created  DateTime @default(now())
+  modified DateTime @default(now()) @updatedAt
+
+  messages Message[]
+
+  @@map("threads")
+}
+
+model Message {
+  id      String @id @default(cuid())
+  role    String // Era MessageRole
+  content String @db.Text
+
+  idThread String @map("id_thread")
+  thread   Thread @relation(fields: [idThread], references: [id])
+  idUser   String @map("id_user")
+  user     User   @relation(fields: [idUser], references: [id])
+
+  functionCall FunctionCall?
+
+  created  DateTime @default(now())
+  modified DateTime @default(now()) @updatedAt
+
+  @@index([idThread])
+  @@map("messages")
+}
+
+model FunctionCall {
+  id        String @id @default(cuid())
+  toolName  String @map("tool_name")
+  arguments Json
+  response  Json
+  status    String
+
+  messageId String  @unique @map("message_id")
+  message   Message @relation(fields: [messageId], references: [id])
+
+  created  DateTime @default(now())
+  modified DateTime @default(now()) @updatedAt
+
+  @@map("function_calls")
+}
+
+model EventUpdate {
+  id      String @id @default(cuid())
+  content String @db.Text
+
+  eventId String @map("event_id")
+  event   Event  @relation(fields: [eventId], references: [id])
+
+  authorId String @map("author_id")
+  author   User   @relation(fields: [authorId], references: [id])
+
+  created  DateTime @default(now())
+  modified DateTime @default(now()) @updatedAt
+
+  comments UpdateComment[]
+
+  @@map("event_updates")
+}
+
+model UpdateComment {
+  id      String @id @default(cuid())
+  content String @db.Text
+
+  updateId String      @map("update_id")
+  update   EventUpdate @relation(fields: [updateId], references: [id])
+
+  authorId String @map("author_id")
+  author   User   @relation(fields: [authorId], references: [id])
+
+  created  DateTime @default(now())
+  modified DateTime @default(now()) @updatedAt
+
+  @@map("update_comments")
+}
+
+model CryptoAddress {
+  id         String   @id @default(cuid())
+  userId     String
+  address    String
+  blockchain String   @default("ARBITRUM")
+  label      String?
+  isDefault  Boolean  @default(false)
+  status     String   @default("ACTIVE")
+  created    DateTime @default(now())
+  updated    DateTime @updatedAt
+
+  user        User               @relation(fields: [userId], references: [id])
+  withdrawals CryptoWithdrawal[]
+
+  @@unique([userId, address])
+  @@map("crypto_addresses")
+}
+
+model CryptoWithdrawal {
+  id                 String   @id @default(cuid())
+  userId             String
+  cryptoAddressId    String
+  amount             Decimal  @db.Decimal(18, 8)
+  asset              String   @default("MXNB")
+  blockchain         String   @default("ARBITRUM")
+  status             String   @default("PENDING")
+  junoTransactionId  String?
+  destinationAddress String
+  txHash             String?
+  metas              Json?
+  created            DateTime @default(now())
+  updated            DateTime @updatedAt
+
+  user          User          @relation(fields: [userId], references: [id])
+  cryptoAddress CryptoAddress @relation(fields: [cryptoAddressId], references: [id])
+
+  @@map("crypto_withdrawals")
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  user        User     @relation(fields: [userId], references: [id])
+  userId      String
+  event       Event?   @relation(fields: [eventId], references: [id])
+  eventId     String?
+  type        String // Era TransactionType
+  status      String   @default("COMPLETED") // Era TransactionStatus
+  amount      Decimal  @db.Decimal(12, 2)
+  currency    String   @default("MXNB")
+  description String?
+  metas       Json?
+  created     DateTime @default(now())
+  updated     DateTime @updatedAt
+
+  @@index([userId])
+  @@index([eventId])
+}
