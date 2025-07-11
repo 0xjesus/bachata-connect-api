@@ -87,6 +87,7 @@ model Event {
   targetAmount      Decimal  @map("target_amount") @db.Decimal(12, 2)
   currentAmount     Decimal  @default(0) @map("current_amount") @db.Decimal(12, 2)
   hostFeePercentage Decimal  @default(0) @map("host_fee_percentage") @db.Decimal(5, 2)
+  metas             Json?    @default("{}")
 
   idCoverImage String?     @unique @map("id_cover_image")
   coverImage   Attachment? @relation("EventCoverImage", fields: [idCoverImage], references: [id], onDelete: SetNull, onUpdate: Cascade)

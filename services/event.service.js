@@ -141,7 +141,7 @@ class EventService {
 
 			eventData.hostId = userId;
 			eventData.publicSlug = slugify(eventData.title);
-
+			eventData.status = 'FUNDING';
 			console.log('[CREATE EVENT] Creando evento con data procesada:', eventData);
 
 			return await primate.prisma.event.create({ data: eventData });
@@ -300,6 +300,8 @@ class EventService {
 		return this.cancel(eventId, hostId);
 	}
 
+	// services/event.service.js
+
 	static async simulateDeadlineReached(eventId, hostId) {
 		return primate.prisma.$transaction(async (tx) => {
 			const event = await tx.event.findUnique({
@@ -317,28 +319,24 @@ class EventService {
 
 			console.log(`[SIMULATE DEADLINE] Processing deadline simulation for event ${ eventId }...`);
 
-			// Simular que llegó el deadline actualizando la fecha
 			const yesterday = new Date();
 			yesterday.setDate(yesterday.getDate() - 1);
 
+			// --- INICIO DE LA CORRECCIÓN ---
+			// Se actualiza solo la fecha límite, ya que el campo 'metas' no existe en el modelo.
 			await tx.event.update({
 				where: { id: eventId },
 				data: {
 					fundingDeadline: yesterday,
-					metas: {
-						...event.metas,
-						deadline_simulated: true,
-						original_deadline: event.fundingDeadline,
-						simulation_date: new Date().toISOString(),
-					},
 				},
 			});
 
-			// Verificar si se alcanzó la meta
-			const goalReached = event.goalAmount && event.currentAmount.gte(event.goalAmount);
+			const updatedEvent = await tx.event.findUnique({ where: { id: eventId } });
+			// --- FIN DE LA CORRECCIÓN ---
+
+			const goalReached = updatedEvent.targetAmount && updatedEvent.currentAmount.gte(updatedEvent.targetAmount);
 
 			if(goalReached) {
-				// Meta alcanzada - confirmar evento
 				const confirmedEvent = await tx.event.update({
 					where: { id: eventId },
 					data: { status: 'CONFIRMED' },
@@ -352,13 +350,9 @@ class EventService {
 				};
 
 			} else {
-				// Meta NO alcanzada - cancelar y reembolsar
 				console.log(`[SIMULATE DEADLINE] ❌ Goal NOT reached. Cancelling and refunding...`);
-
-				// Procesar reembolsos masivos
 				await TransactionService.createMassRefund(eventId, tx);
 
-				// Cancelar evento
 				const cancelledEvent = await tx.event.update({
 					where: { id: eventId },
 					data: { status: 'CANCELLED' },
@@ -368,7 +362,7 @@ class EventService {
 				return {
 					event: cancelledEvent,
 					result: 'goal_failed',
-					message: `Deadline simulado. Meta no alcanzada (${ event.currentAmount }/${ event.goalAmount }). Evento cancelado y reembolsos procesados.`,
+					message: `Deadline simulado. Meta no alcanzada (${ updatedEvent.currentAmount }/${ updatedEvent.targetAmount }). Evento cancelado y reembolsos procesados.`,
 				};
 			}
 		});

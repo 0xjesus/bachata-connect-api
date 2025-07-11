@@ -210,61 +210,55 @@ class UserService {
 	 * @property {string} accessToken - The access token for the user.
 	 */
 
-	/**
-	 * Logs in a user with the given data.
-	 *
-	 * @param {Object} data - The login data containing username and password.
-	 * @returns {Promise<UserLoginResponse>} - A promise that resolves to the logged-in user object with an access token.
-	 * @throws {Error} - Throws an error if the login or password is missing, or if the user is not found or unauthorized.
-	 */
-	static async login(data) {
-    const { username, password, email, nicename } = data; // Agregamos nicename
+/**
+     * Logs in a user with the given data.
+     *
+     * @param {Object} data - The login data containing username and password.
+     * @returns {Promise<UserLoginResponse>} - A promise that resolves to the logged-in user object with an access token.
+     * @throws {Error} - Throws an error if the login or password is missing, or if the user is not found or unauthorized.
+     */
+    static async login(data) {
+        const { username, password, email, nicename } = data;
 
-    console.log("Login data:", data);
-    console.log("Username:", username);
-    console.log("Nicename:", nicename); // Log nicename también
-    console.log("Email:", email);
-    console.log("Password:", password);
+        if ((!username && !email && !nicename) || !password) {
+            throw Error('Missing login credentials or password');
+        }
 
-    if((!username && !email && !nicename) || !password) {
-        throw Error('Missing login credentials or password');
+        let user = null;
+        const whereClause = email ? { email } : username ? { username } : { nicename };
+        user = await primate.prisma.user.findUnique({ where: whereClause });
+
+        if (!user) throw Error('User not registered');
+        if (user.status !== 'Active') throw Error('User is not active');
+
+        const checkPassword = bcrypt.compareSync(password, user.password);
+        if (!checkPassword) throw Error('Email address or password not valid');
+
+        delete user.password;
+        delete user.walletPrivateKey; // Asegurarse de que nunca se envíe la clave privada
+
+        // --- INICIO DE LA CORRECCIÓN ---
+        // Después de validar al usuario, calculamos y añadimos el balance,
+        // igual que lo hace el endpoint /me.
+        const calculatedBalance = await TransactionService.getUserBalance(user.id);
+
+        user.balance = {
+            available: calculatedBalance.toFixed(2),
+            total: calculatedBalance.toFixed(2),
+            locked: '0.00',
+            currency: 'MXNB',
+            source: 'internal_ledger',
+            status: 'OK',
+            clabe: user.fundingClabe,
+            lastUpdated: new Date().toISOString(),
+        };
+        // --- FIN DE LA CORRECCIÓN ---
+
+        const accessToken = await jwt.signAccessToken(user);
+
+        console.log(`User ${user.username || user.nicename} logged in successfully.`);
+        return { user, accessToken };
     }
-
-    let user = null;
-
-    // Prioridad: email > username > nicename
-    if (email) {
-        user = await primate.prisma.user.findUnique({
-            where: { email },
-        });
-    } else if (username) {
-        user = await primate.prisma.user.findUnique({
-            where: { username },
-        });
-    } else if (nicename) {
-        user = await primate.prisma.user.findUnique({
-            where: { nicename }, // O el campo que uses para nicename
-        });
-    }
-
-    console.log("User found:", user);
-    console.log(`User ${email || username || nicename} trying to log in...`);
-
-    if(!user) throw Error('User not registered');
-
-    // Check user is active
-    if(user.status !== 'Active') throw Error('User is not active');
-
-    const checkPassword = bcrypt.compareSync(password, user.password);
-    if(!checkPassword) throw Error('Email address or password not valid');
-
-    delete user.password;
-
-    const accessToken = await jwt.signAccessToken(user);
-
-    console.log(`User ${user.username || user.nicename} logged in successfully.`);
-    return { user, accessToken };
-}
 
 	/**
 	 * Initiates the account recovery process for a user.
