@@ -31,19 +31,37 @@ class TransactionService {
 		return transaction;
 	}
 
-	static async getUserBalance(userId) {
-		const aggregation = await primate.prisma.transaction.aggregate({
-			_sum: {
-				amount: true,
-			},
-			where: {
-				userId,
-				status: 'COMPLETED',
-			},
-		});
+	static async getUserBalance(userId, tx = null) {
+    const prisma = tx || primate.prisma;
 
-		return aggregation._sum.amount || new Prisma.Decimal(0);
-	}
+    // 🔧 SI estamos en una transacción, calculamos manualmente
+    if (tx) {
+        const transactions = await tx.transaction.findMany({
+            where: {
+                userId,
+                status: 'COMPLETED',
+            },
+            select: {
+                amount: true
+            }
+        });
+
+        return transactions.reduce((sum, t) => sum.plus(t.amount), new Prisma.Decimal(0));
+    }
+
+    // 🔧 Si NO estamos en transacción, usamos aggregate (más eficiente)
+    const aggregation = await prisma.transaction.aggregate({
+        _sum: {
+            amount: true,
+        },
+        where: {
+            userId,
+            status: 'COMPLETED',
+        },
+    });
+
+    return aggregation._sum.amount || new Prisma.Decimal(0);
+}
 
 	static async createHostPayout(eventId, triggeredByUserId) {
 		console.log(`[PAYOUT] 🚀 Iniciando proceso de PAGO INTERNO para el evento: ${ eventId }`);
@@ -126,27 +144,67 @@ class TransactionService {
 		});
 	}
 
-	static async createMassRefund(eventId, tx) {
-		const participations = await tx.participation.findMany({
-			where: { eventId },
-			include: { user: true, event: true },
-		});
+static async createMassRefund(eventId, tx) {
+    console.log(`🔄 [REFUND] Iniciando reembolsos masivos para evento: ${eventId}`);
 
-		for(const p of participations) {
-			await tx.transaction.create({
-				data: {
-					userId: p.userId,
-					eventId: eventId,
-					type: 'EVENT_REFUND',
-					status: 'COMPLETED',
-					amount: new Prisma.Decimal(p.amount),
-					description: `Reembolso por evento cancelado: ${ p.event.title }`,
-					metas: { participationId: p.id },
-				},
-			});
-		}
-	}
+    const participations = await tx.participation.findMany({
+        where: { eventId },
+        include: { user: true, event: true },
+    });
 
+    console.log(`📊 [REFUND] Encontradas ${participations.length} participaciones a reembolsar`);
+
+    for(const p of participations) {
+        console.log(`\n👤 [REFUND] Procesando usuario: ${p.user.email || p.user.nicename} (ID: ${p.userId})`);
+        console.log(`💰 [REFUND] Monto participación: ${p.amount}`);
+
+        // 🔧 BUSCAR LA TRANSACCIÓN ORIGINAL DE CONTRIBUCIÓN - SINTAXIS MYSQL CORREGIDA
+        const originalContribution = await tx.transaction.findFirst({
+            where: {
+                userId: p.userId,
+                eventId: eventId,
+                type: 'EVENT_CONTRIBUTION',
+                metas: {
+                    path: "$.participationId",  // ⬅️ SINTAXIS MYSQL CORRECTA
+                    equals: p.id
+                }
+            }
+        });
+
+        console.log(`🔍 [REFUND] Transacción original encontrada:`, originalContribution ? 'SÍ' : 'NO');
+        if (originalContribution) {
+            console.log(`💸 [REFUND] Monto original: ${originalContribution.amount} (negativo)`);
+            console.log(`🔄 [REFUND] Monto original ABS: ${originalContribution.amount.abs()}`);
+        }
+
+        // 🔧 USAR EL MONTO EXACTO INVERSO
+        const refundAmount = originalContribution
+            ? originalContribution.amount.abs()
+            : new Prisma.Decimal(p.amount);
+
+        console.log(`✅ [REFUND] Monto a reembolsar: ${refundAmount}`);
+
+        const refundTransaction = await tx.transaction.create({
+            data: {
+                userId: p.userId,
+                eventId: eventId,
+                type: 'EVENT_REFUND',
+                status: 'COMPLETED',
+                amount: refundAmount,
+                description: `Reembolso por evento cancelado: ${p.event.title}`,
+                metas: { participationId: p.id },
+            },
+        });
+
+        console.log(`💾 [REFUND] Transacción de reembolso creada con ID: ${refundTransaction.id}`);
+
+        // Calcular balance después del reembolso (dentro de la transacción)
+        const newBalance = await TransactionService.getUserBalance(p.userId, tx);
+        console.log(`📈 [REFUND] Nuevo balance calculado para usuario ${p.userId}: ${newBalance}`);
+    }
+
+    console.log(`🎉 [REFUND] Reembolsos masivos completados para evento: ${eventId}`);
+}
 	static async getUserTransactionHistory(userId, options = {}) {
 		const { limit = 10, offset = 0 } = options;
 		const transactions = await primate.prisma.transaction.findMany({

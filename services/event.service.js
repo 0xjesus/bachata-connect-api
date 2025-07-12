@@ -18,111 +18,118 @@ class EventService {
 
 	// services/event.service.js
 
-	static async join(eventId, userId, amount) {
-		console.log(`[JOIN EVENT] 🚀 Inicio de proceso para Evento: ${ eventId }, Usuario: ${ userId }, Monto: ${ amount }`);
-		const amountDecimal = new Prisma.Decimal(amount);
+static async join(eventId, userId, amount) {
+   console.log(`[JOIN EVENT] 🚀 Inicio de proceso para Evento: ${eventId}, Usuario: ${userId}, Monto: ${amount}`);
+   const amountDecimal = new Prisma.Decimal(amount);
 
-		try {
-			return await primate.prisma.$transaction(async (tx) => {
-				// 1. Verificar balance del usuario
-				console.log(`[JOIN EVENT] ℹ️  Paso 1: Verificando balance para usuario ${ userId }...`);
-				const currentBalance = await TransactionService.getUserBalance(userId, tx);
-				console.log(`[JOIN EVENT] ℹ️  Balance actual: ${ currentBalance.toFixed(2) } MXNB. Monto requerido: ${ amountDecimal.toFixed(2) } MXNB.`);
+   try {
+       return await primate.prisma.$transaction(async (tx) => {
+           // 1. Verificar balance del usuario
+           console.log(`[JOIN EVENT] ℹ️  Paso 1: Verificando balance para usuario ${userId}...`);
+           const currentBalance = await TransactionService.getUserBalance(userId, tx);
+           console.log(`[JOIN EVENT] ℹ️  Balance actual: ${currentBalance.toFixed(2)} MXNB. Monto requerido: ${amountDecimal.toFixed(2)} MXNB.`);
 
-				if(currentBalance.lessThan(amountDecimal)) {
-					console.error(`[JOIN EVENT] ❌ ERROR: Saldo insuficiente para ${ userId }.`);
-					throw new Error(`Saldo insuficiente. Tienes ${ currentBalance.toFixed(2) } MXNB.`);
-				}
-				console.log(`[JOIN EVENT] ✅ Balance suficiente.`);
+           if(currentBalance.lessThan(amountDecimal)) {
+               console.error(`[JOIN EVENT] ❌ ERROR: Saldo insuficiente para ${userId}.`);
+               throw new Error(`Saldo insuficiente. Tienes ${currentBalance.toFixed(2)} MXNB.`);
+           }
+           console.log(`[JOIN EVENT] ✅ Balance suficiente.`);
 
-				// 2. Obtener y validar el evento
-				console.log(`[JOIN EVENT] ℹ️  Paso 2: Buscando evento ${ eventId }...`);
-				const event = await tx.event.findUnique({ where: { id: eventId } });
+           // 2. Obtener y validar el evento
+           console.log(`[JOIN EVENT] ℹ️  Paso 2: Buscando evento ${eventId}...`);
+           const event = await tx.event.findUnique({ where: { id: eventId } });
 
-				if(!event) {
-					console.error(`[JOIN EVENT] ❌ ERROR: Evento con ID ${ eventId } no encontrado.`);
-					throw new Error('Event not found.');
-				}
-				console.log(`[JOIN EVENT] ✅ Evento encontrado: "${ event.title }".`);
+           if(!event) {
+               console.error(`[JOIN EVENT] ❌ ERROR: Evento con ID ${eventId} no encontrado.`);
+               throw new Error('Event not found.');
+           }
+           console.log(`[JOIN EVENT] ✅ Evento encontrado: "${event.title}".`);
 
-				// 3. Validar estado del evento
-				console.log(`[JOIN EVENT] ℹ️  Paso 3: Verificando estado del evento. Estado actual: ${ event.status }`);
-				if(event.status !== 'FUNDING') {
-					console.error(`[JOIN EVENT] ❌ ERROR: El evento no está en estado 'FUNDING'.`);
-					throw new Error('Este evento no está aceptando participantes.');
-				}
-				console.log(`[JOIN EVENT] ✅ El evento está abierto para recibir fondos.`);
+           // 3. Validar estado del evento
+           console.log(`[JOIN EVENT] ℹ️  Paso 3: Verificando estado del evento. Estado actual: ${event.status}`);
+           if(event.status !== 'FUNDING') {
+               console.error(`[JOIN EVENT] ❌ ERROR: El evento no está en estado 'FUNDING'.`);
+               throw new Error('Este evento no está aceptando participantes.');
+           }
+           console.log(`[JOIN EVENT] ✅ El evento está abierto para recibir fondos.`);
 
-				// 4. Validar que el organizador no se una a su propio evento
-				console.log(`[JOIN EVENT] ℹ️  Paso 4: Verificando que el usuario no sea el organizador.`);
-				console.log(`[JOIN EVENT] ℹ️  Host ID: ${ event.hostId }, User ID: ${ userId }`);
-				if(event.hostId === userId) {
-					console.error(`[JOIN EVENT] ❌ ERROR: El usuario ${ userId } es el organizador del evento.`);
-					throw new Error('No puedes aportar a tu propio evento.');
-				}
-				console.log(`[JOIN EVENT] ✅ El usuario no es el organizador.`);
+           // 4. Validar que el organizador no se una a su propio evento
+           console.log(`[JOIN EVENT] ℹ️  Paso 4: Verificando que el usuario no sea el organizador.`);
+           console.log(`[JOIN EVENT] ℹ️  Host ID: ${event.hostId}, User ID: ${userId}`);
+           if(event.hostId === userId) {
+               console.error(`[JOIN EVENT] ❌ ERROR: El usuario ${userId} es el organizador del evento.`);
+               throw new Error('No puedes aportar a tu propio evento.');
+           }
+           console.log(`[JOIN EVENT] ✅ El usuario no es el organizador.`);
 
-				// 5. Validar que el usuario no se haya unido previamente
-				console.log(`[JOIN EVENT] ℹ️  Paso 5: Verificando si el usuario ya participa...`);
-				const existingParticipation = await tx.participation.findUnique({
-					where: { userId_eventId: { userId, eventId } },
-				});
-				if(existingParticipation) {
-					console.error(`[JOIN EVENT] ❌ ERROR: El usuario ${ userId } ya participa en este evento.`);
-					throw new Error('Ya estás participando en este evento');
-				}
-				console.log(`[JOIN EVENT] ✅ El usuario no ha participado previamente.`);
+           // 5. Validar que el usuario no se haya unido previamente
+           console.log(`[JOIN EVENT] ℹ️  Paso 5: Verificando si el usuario ya participa...`);
+           const existingParticipation = await tx.participation.findUnique({
+               where: { userId_eventId: { userId, eventId } },
+           });
+           if(existingParticipation) {
+               console.error(`[JOIN EVENT] ❌ ERROR: El usuario ${userId} ya participa en este evento.`);
+               throw new Error('Ya estás participando en este evento');
+           }
+           console.log(`[JOIN EVENT] ✅ El usuario no ha participado previamente.`);
 
-				// 6. Crear la participación y la transacción
-				console.log(`[JOIN EVENT] ℹ️  Paso 6: Creando registros de participación y transacción...`);
-				const participation = await tx.participation.create({
-					data: { amount: amountDecimal, userId, eventId },
-				});
-				console.log(`[JOIN EVENT] ✅ Participación creada con ID: ${ participation.id }`);
+           // 6. Crear la participación y la transacción
+           console.log(`[JOIN EVENT] ℹ️  Paso 6: Creando registros de participación y transacción...`);
+           const participation = await tx.participation.create({
+               data: { amount: amountDecimal, userId, eventId },
+           });
+           console.log(`[JOIN EVENT] ✅ Participación creada con ID: ${participation.id}`);
 
-				await tx.transaction.create({
-					data: {
-						userId,
-						eventId,
-						type: 'EVENT_CONTRIBUTION',
-						status: 'COMPLETED',
-						amount: amountDecimal.negated(),
-						description: `Aportación al evento: ${ event.title }`,
-						metas: { participationId: participation.id },
-					},
-				});
-				console.log(`[JOIN EVENT] ✅ Transacción de contribución creada.`);
+           console.log(`[JOIN EVENT] 💸 Creando transacción NEGATIVA de: ${amountDecimal.negated()}`);
 
-				// 7. Actualizar el monto del evento
-				console.log(`[JOIN EVENT] ℹ️  Paso 7: Actualizando monto total del evento...`);
-				const updatedEvent = await tx.event.update({
-					where: { id: eventId },
-					data: { currentAmount: { increment: amountDecimal } },
-				});
-				console.log(`[JOIN EVENT] ✅ Monto del evento actualizado a: ${ updatedEvent.currentAmount }`);
+           const contributionTransaction = await tx.transaction.create({
+               data: {
+                   userId,
+                   eventId,
+                   type: 'EVENT_CONTRIBUTION',
+                   status: 'COMPLETED',
+                   amount: amountDecimal.negated(),
+                   description: `Aportación al evento: ${event.title}`,
+                   metas: { participationId: participation.id },
+               },
+           });
+           console.log(`[JOIN EVENT] ✅ Transacción de contribución creada con ID: ${contributionTransaction.id}`);
+           console.log(`[JOIN EVENT] 📊 Monto registrado: ${contributionTransaction.amount}`);
 
-				// 8. Verificar si se alcanzó la meta (CON LA CORRECCIÓN)
-				// why: Se añade "event.goalAmount &&" para evitar el error si la meta no está definida.
-				if(event.goalAmount && updatedEvent.currentAmount.gte(event.goalAmount)) {
-					console.log(`[JOIN EVENT] ℹ️  Paso 8: ¡META ALCANZADA! Actualizando estado a 'CONFIRMED'.`);
-					await tx.event.update({
-						where: { id: eventId },
-						data: { status: 'CONFIRMED' },
-					});
-					console.log(`[JOIN EVENT] ✅ Estado del evento actualizado a 'CONFIRMED'.`);
-				} else {
-					console.log(`[JOIN EVENT] ℹ️  Paso 8: La meta aún no se ha alcanzado. Meta: ${ event.goalAmount }, Actual: ${ updatedEvent.currentAmount }`);
-				}
+           // Verificar balance después de la transacción
+           const newBalance = await TransactionService.getUserBalance(userId, tx);
+           console.log(`[JOIN EVENT] 📈 Nuevo balance calculado: ${newBalance.toFixed(2)} MXNB`);
+           console.log(`[JOIN EVENT] 🔍 Diferencia esperada: ${currentBalance.minus(amountDecimal).toFixed(2)} vs Real: ${newBalance.toFixed(2)}`);
 
-				console.log(`[JOIN EVENT] 🎉 Proceso finalizado con éxito para el usuario ${ userId }.`);
-				return updatedEvent;
-			});
-		} catch(error) {
-			console.error(`[JOIN EVENT] 🔥🔥🔥 TRANSACCIÓN FALLIDA: ${ error.message }`);
-			throw error; // Vuelve a lanzar el error para que el controlador lo capture
-		}
-	}
+           // 7. Actualizar el monto del evento
+           console.log(`[JOIN EVENT] ℹ️  Paso 7: Actualizando monto total del evento...`);
+           const updatedEvent = await tx.event.update({
+               where: { id: eventId },
+               data: { currentAmount: { increment: amountDecimal } },
+           });
+           console.log(`[JOIN EVENT] ✅ Monto del evento actualizado a: ${updatedEvent.currentAmount}`);
 
+           // 8. Verificar si se alcanzó la meta (CON LA CORRECCIÓN)
+           // why: Se añade "event.goalAmount &&" para evitar el error si la meta no está definida.
+           if(event.goalAmount && updatedEvent.currentAmount.gte(event.goalAmount)) {
+               console.log(`[JOIN EVENT] ℹ️  Paso 8: ¡META ALCANZADA! Actualizando estado a 'CONFIRMED'.`);
+               await tx.event.update({
+                   where: { id: eventId },
+                   data: { status: 'CONFIRMED' },
+               });
+               console.log(`[JOIN EVENT] ✅ Estado del evento actualizado a 'CONFIRMED'.`);
+           } else {
+               console.log(`[JOIN EVENT] ℹ️  Paso 8: La meta aún no se ha alcanzado. Meta: ${event.goalAmount}, Actual: ${updatedEvent.currentAmount}`);
+           }
+
+           console.log(`[JOIN EVENT] 🎉 Proceso finalizado con éxito para el usuario ${userId}.`);
+           return updatedEvent;
+       });
+   } catch(error) {
+       console.error(`[JOIN EVENT] 🔥🔥🔥 TRANSACCIÓN FALLIDA: ${error.message}`);
+       throw error; // Vuelve a lanzar el error para que el controlador lo capture
+   }
+}
 	// services/event.service.js
 
 	static async create(eventData, userId) {
